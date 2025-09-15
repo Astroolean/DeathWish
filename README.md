@@ -5,6 +5,10 @@
 
 > A next-level hardcore Minecraft plugin featuring **mob scaling, unique boss fights, powerful abilities, custom loot drops, dynamic difficulty multipliers, player revival mechanics, and fully configurable progression** — designed to push survival to its limits.
 
+> I made this for my hardcore smp server called The Final Block which will end up becoming my forever world. This plugin is very far from complete; a lot still has to be fixed and changed. However this is something I consider to be a stable prototype. Until I find the freetime to work on it further. This plugin will continue to be updated for newer versions never earlier versions. Keep in mind this plugin will only be updated when I need to update my server aka The Final Block. As long as The Final Block is being updated this will be updated too. I have no idea how to setup bstats or metrics and completely winged this entire project. This is far from perfect, but is HIGHLY configurable. Completely open-source and free forever!
+
+> I will try to push a flawless stable build by the end of the year. Looking to play a bit before I work 24/7 again lmfao... Please rate this and review this honestly not because of its current state but what the plugin could offer and provide. This is solely just a prototype I believe could turn into something a lot of people would love to use. I needed something like this and im sure many others do too. Im no where near an expert in programming but with the power of AI I managed to make this... 
+
 ---
 
 ## 📑 Table of Contents
