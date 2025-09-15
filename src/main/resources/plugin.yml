@@ -1,0 +1,59 @@
+# =========================
+# DeathWish - plugin.yml
+# Version: 1.0.2
+# =========================
+
+name: DeathWish
+main: com.astroolean.deathwish.DeathWish
+version: 1.0.2
+api-version: 1.21
+author: astroolean
+description: Mob scaling, bosses, abilities, custom loot, and hardcore revive mechanics.
+
+commands:
+  deathwish:
+    description: Base command for DeathWish
+    aliases: [dw]
+    usage: /<command> [subcommand]
+    permission: deathwish.use
+
+  revive:
+    description: Revive a dead player using their head
+    usage: /revive <player>
+    permission: deathwish.revive
+
+  deadlist:
+    description: Shows all currently dead players
+    usage: /deadlist
+    permission: deathwish.deadlist
+
+  gg:
+    description: Force revive a player (admin only)
+    usage: /gg <player>
+    permission: deathwish.gg
+
+  dwreload:
+    description: Reload the DeathWish config
+    usage: /dwreload
+    permission: deathwish.reload
+
+permissions:
+  deathwish.use:
+    description: Access to DeathWish base command
+    default: true
+
+  deathwish.revive:
+    description: Allows reviving other players with heads
+    default: true
+
+  deathwish.deadlist:
+    description: Allows viewing the dead players list
+    default: true
+
+  deathwish.gg:
+    description: Force revive a player (admin only)
+    default: op
+
+  deathwish.reload:
+    description: Reload plugin configs
+    default: op

@@ -1,0 +1,81 @@
+# -------------------
+# Runtime Data 
+# -------------------
+data:
+  # Track players who are dead (name -> last death time)
+  dead: []
+
+  # Track revive timestamps (name -> last revive time)
+  reviveTimestamps: {}
+
+  # Global counters
+  totalPlayerDeaths: 0
+  totalBossKills: 0
+  totalMobKills: 0
+
+  # Passive mobs
+  passive:
+    COW: { kills: 0, lastKilled: null }
+    SHEEP: { kills: 0, lastKilled: null }
+    PIG: { kills: 0, lastKilled: null }
+    CHICKEN: { kills: 0, lastKilled: null }
+    HORSE: { kills: 0, lastKilled: null }
+    DONKEY: { kills: 0, lastKilled: null }
+    MULE: { kills: 0, lastKilled: null }
+    RABBIT: { kills: 0, lastKilled: null }
+    TURTLE: { kills: 0, lastKilled: null }
+    VILLAGER: { kills: 0, lastKilled: null }
+    CAT: { kills: 0, lastKilled: null }
+    WOLF: { kills: 0, lastKilled: null }
+    PARROT: { kills: 0, lastKilled: null }
+    BEE: { kills: 0, lastKilled: null }
+    AXOLOTL: { kills: 0, lastKilled: null }
+    GOAT: { kills: 0, lastKilled: null }
+    CAMEL: { kills: 0, lastKilled: null }
+    LLAMA: { kills: 0, lastKilled: null }
+    PANDA: { kills: 0, lastKilled: null }
+    FOX: { kills: 0, lastKilled: null }
+    SNIFFER: { kills: 0, lastKilled: null }
+
+  # Hostile mobs
+  hostile:
+    ZOMBIE: { kills: 0, lastKilled: null }
+    SKELETON: { kills: 0, lastKilled: null }
+    CREEPER: { kills: 0, lastKilled: null }
+    SPIDER: { kills: 0, lastKilled: null }
+    CAVE_SPIDER: { kills: 0, lastKilled: null }
+    SLIME: { kills: 0, lastKilled: null }
+    MAGMA_CUBE: { kills: 0, lastKilled: null }
+    DROWNED: { kills: 0, lastKilled: null }
+    HUSK: { kills: 0, lastKilled: null }
+    STRAY: { kills: 0, lastKilled: null }
+    WITCH: { kills: 0, lastKilled: null }
+    GUARDIAN: { kills: 0, lastKilled: null }
+    BLAZE: { kills: 0, lastKilled: null }
+    GHAST: { kills: 0, lastKilled: null }
+    PHANTOM: { kills: 0, lastKilled: null }
+    ENDERMAN: { kills: 0, lastKilled: null }
+    PILLAGER: { kills: 0, lastKilled: null }
+    VEX: { kills: 0, lastKilled: null }
+    SILVERFISH: { kills: 0, lastKilled: null }
+    SHULKER: { kills: 0, lastKilled: null }
+    PIGLIN: { kills: 0, lastKilled: null }
+    HOGLIN: { kills: 0, lastKilled: null }
+    ZOGLIN: { kills: 0, lastKilled: null }
+    STRIDER: { kills: 0, lastKilled: null }
+    ZOMBIFIED_PIGLIN: { kills: 0, lastKilled: null }
+    RAVAGER: { kills: 0, lastKilled: null }
+    VINDICATOR: { kills: 0, lastKilled: null }
+    EVOKER: { kills: 0, lastKilled: null }
+    PIGLIN_BRUTE: { kills: 0, lastKilled: null }
+
+  # Bosses / Mini-bosses
+  bosses:
+    ENDER_DRAGON: { kills: 0, lastKilled: null }
+    WITHER: { kills: 0, lastKilled: null }
+    WARDEN: { kills: 0, lastKilled: null }
+    ELDER_GUARDIAN: { kills: 0, lastKilled: null }
+    RAVAGER: { kills: 0, lastKilled: null }
+    VINDICATOR: { kills: 0, lastKilled: null }
+    EVOKER: { kills: 0, lastKilled: null }
+    PIGLIN_BRUTE: { kills: 0, lastKilled: null }
