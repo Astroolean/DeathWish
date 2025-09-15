@@ -10,7 +10,7 @@
 ## 📑 Table of Contents
 
 1. ✨ Features  
-2. 🖼️ Screenshots  
+2. 📸 Screenshots  
 3. 🔐 Commands & Permissions  
 4. ⚙️ Configuration  
 5. 🗄️ Data Structure  
@@ -62,6 +62,16 @@
 - 🔄 **Replayable Hardcore Mode**
   - Every run feels different thanks to scaling, bosses, and loot.
   - Designed for **long-term progression** and **community challenges**.
+
+---
+
+## 📸 Screenshots 
+
+<img width="869" height="226" alt="e8eb7f07f3268572cca5e227fb7fc2f3" src="https://github.com/user-attachments/assets/fce36e6a-dc3a-450d-b3fd-24f9024dc4d4" />
+<img width="996" height="349" alt="8fa68c4e8e97184b143d466e02300e44" src="https://github.com/user-attachments/assets/dbdb3e0d-fcf7-430c-9d70-29f9d22a97e5" />
+<img width="1920" height="1057" alt="2025-09-15_00 13 18" src="https://github.com/user-attachments/assets/6d5a2195-46b8-4047-b93f-305513b552ac" />
+<img width="1920" height="1057" alt="2025-09-15_00 13 36" src="https://github.com/user-attachments/assets/d680416b-39e4-480e-8617-357a694b16cc" />
+<img width="1920" height="1057" alt="2025-09-15_00 15 21" src="https://github.com/user-attachments/assets/74b10c4d-d47f-4fdb-8e30-9e3e98f70793" />
 
 ---
 
