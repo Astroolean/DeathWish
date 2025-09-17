@@ -5,7 +5,6 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 import org.bukkit.Bukkit;
-import org.bukkit.Difficulty;
 import org.bukkit.GameMode;
 import org.bukkit.Keyed;
 import org.bukkit.Location;
@@ -23,7 +22,6 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -34,8 +32,6 @@ import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.world.WorldInitEvent;
-import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.ShapedRecipe;
@@ -266,7 +262,7 @@ public final class DeathWish extends JavaPlugin implements Listener, TabComplete
         }
     }
 
-    // ---------------- difficulty enforcement ----------------
+    // ---------------- difficulty enforcement (config-driven + normalized) ----------------
     private void applyDifficultyAll() {
         FileConfiguration config = getConfig();
         if (config == null) {
@@ -274,142 +270,179 @@ public final class DeathWish extends JavaPlugin implements Listener, TabComplete
             return;
         }
 
+        // --- global scaling extras (time / deaths / boss kills) ---
+        double extraHealth = 0.0;
+        double extraDamage = 0.0;
+
         ConfigurationSection diffSec = config.getConfigurationSection("difficulty");
-        if (diffSec == null || !diffSec.getBoolean("enabled", false)) {
-            // Difficulty disabled or not present
-            return;
-        }
+        if (diffSec != null && diffSec.getBoolean("enabled", false)) {
+            StringBuilder breakdown = new StringBuilder("Scaling breakdown → ");
 
-        // Load base defaults safely
-        double baseHealth = 1.0;
-        double baseDamage = 1.0;
-        ConfigurationSection defaults = diffSec.getConfigurationSection("defaults");
-        if (defaults != null) {
-            baseHealth = defaults.getDouble("health-multiplier", baseHealth);
-            baseDamage = defaults.getDouble("damage-multiplier", baseDamage);
-        }
+            ConfigurationSection defaults = diffSec.getConfigurationSection("defaults");
+            double diffBaseHealth = defaults != null ? defaults.getDouble("health-multiplier", 1.0) : 1.0;
+            double diffBaseDamage = defaults != null ? defaults.getDouble("damage-multiplier", 1.0) : 1.0;
+            breakdown.append(String.format("diff-base(h=%.2f,d=%.2f)", diffBaseHealth, diffBaseDamage));
 
-        double healthMult = baseHealth;
-        double damageMult = baseDamage;
-
-        StringBuilder breakdown = new StringBuilder("Scaling breakdown → ");
-        breakdown.append(String.format("base=%.2f", baseHealth));
-
-        // Scaling section
-        ConfigurationSection scaling = diffSec.getConfigurationSection("scaling");
-        if (scaling != null) {
-            // Time-based
-            ConfigurationSection timeSec = scaling.getConfigurationSection("time-based");
-            if (timeSec != null && timeSec.getBoolean("enabled", false)) {
-                // Guard against empty worlds list
-                long days = 0;
-                List<World> worlds = Bukkit.getWorlds();
-                if (!worlds.isEmpty()) {
-                    // Use first loaded world as the primary time source
-                    World w0 = worlds.get(0);
-                    days = Math.max(0L, w0.getFullTime() / 24000L);
-                }
-                double perDay = timeSec.getDouble("multiplier-per-day", 0.0);
-                double add = days * perDay;
-                healthMult += add;
-                damageMult += add;
-                breakdown.append(String.format(", days=%d(+%.2f)", days, add));
-            }
-
-            // Death-based
-            ConfigurationSection deathSec = scaling.getConfigurationSection("death-based");
-            if (deathSec != null && deathSec.getBoolean("enabled", false)) {
-                double perDeath = deathSec.getDouble("multiplier-per-death", 0.0);
-                double add = totalPlayerDeaths * perDeath;
-                healthMult += add;
-                damageMult += add;
-                breakdown.append(String.format(", deaths=%d(+%.2f)", totalPlayerDeaths, add));
-            }
-
-            // Boss-kill
-            ConfigurationSection bossSec = scaling.getConfigurationSection("boss-kill");
-            if (bossSec != null && bossSec.getBoolean("enabled", false)) {
-                double perBoss = bossSec.getDouble("multiplier-per-boss", 0.0);
-                double add = totalBossKills * perBoss;
-                healthMult += add;
-                damageMult += add;
-                breakdown.append(String.format(", bosses=%d(+%.2f)", totalBossKills, add));
-            }
-        }
-
-        // Safety clamps — avoid absurd multipliers (optional, tweakable)
-        // healthMult = Math.min(healthMult, 10.0);
-        // damageMult = Math.min(damageMult, 10.0);
-
-        // Apply multipliers to each living non-player entity
-        List<World> worlds = Bukkit.getWorlds();
-        if (worlds.isEmpty()) {
-            getLogger().warning("No worlds loaded; skipping difficulty application.");
-        } else {
-            for (World w : worlds) {
-                if (w == null) continue;
-                for (LivingEntity ent : w.getLivingEntities()) {
-                    if (ent == null) continue;
-                    if (ent instanceof Player) continue;
-
-                    // MAX HEALTH
-                    AttributeInstance healthAttr = ent.getAttribute(Attribute.MAX_HEALTH);
-                    if (healthAttr != null) {
-                        double base = healthAttr.getBaseValue();
-                        double newMaxHealth = base * healthMult;
-                        try {
-                            healthAttr.setBaseValue(newMaxHealth);
-                            // keep current health at or below newMax
-                            double currentHp = ent.getHealth();
-                            ent.setHealth(Math.min(currentHp, newMaxHealth));
-                        } catch (Exception ex) {
-                            // Defensive: some entities can throw on setHealth or setBaseValue in odd implementations
-                            getLogger().log(Level.FINER, "Failed to set health for {0} ({1}): {2}", new Object[]{ent.getType(), ent.getUniqueId(), ex.getMessage()});
-                        }
+            ConfigurationSection scaling = diffSec.getConfigurationSection("scaling");
+            if (scaling != null) {
+                // time-based
+                ConfigurationSection timeSec = scaling.getConfigurationSection("time-based");
+                if (timeSec != null && timeSec.getBoolean("enabled", false)) {
+                    long days = 0;
+                    List<World> worlds = Bukkit.getWorlds();
+                    if (!worlds.isEmpty()) {
+                        World w0 = worlds.get(0);
+                        days = Math.max(0L, w0.getFullTime() / 24000L);
                     }
+                    double perDay = timeSec.getDouble("multiplier-per-day", 0.0);
+                    double add = days * perDay;
+                    extraHealth += add;
+                    extraDamage += add;
+                    breakdown.append(String.format(", days=%d(+%.2f)", days, add));
+                }
 
-                    // ATTACK DAMAGE
-                    AttributeInstance dmgAttr = ent.getAttribute(Attribute.ATTACK_DAMAGE);
-                    if (dmgAttr != null) {
-                        double base = dmgAttr.getBaseValue();
-                        double newDamage = base * damageMult;
-                        try {
-                            dmgAttr.setBaseValue(newDamage);
-                        } catch (Exception ex) {
-                            getLogger().log(Level.FINER, "Failed to set damage for {0} ({1}): {2}", new Object[]{ent.getType(), ent.getUniqueId(), ex.getMessage()});
+                // death-based
+                ConfigurationSection deathSec = scaling.getConfigurationSection("death-based");
+                if (deathSec != null && deathSec.getBoolean("enabled", false)) {
+                    double perDeath = deathSec.getDouble("multiplier-per-death", 0.0);
+                    double add = totalPlayerDeaths * perDeath;
+                    extraHealth += add;
+                    extraDamage += add;
+                    breakdown.append(String.format(", deaths=%d(+%.2f)", totalPlayerDeaths, add));
+                }
+
+                // boss-kill
+                ConfigurationSection bossSec = scaling.getConfigurationSection("boss-kill");
+                if (bossSec != null && bossSec.getBoolean("enabled", false)) {
+                    double perBoss = bossSec.getDouble("multiplier-per-boss", 0.0);
+                    double add = totalBossKills * perBoss;
+                    extraHealth += add;
+                    extraDamage += add;
+                    breakdown.append(String.format(", bosses=%d(+%.2f)", totalBossKills, add));
+                }
+            }
+
+            getLogger().info(breakdown.toString());
+        }
+
+        // read clamps (optional)
+        double maxHealthClamp = diffSec != null ? diffSec.getDouble("max-multiplier-health", 0.0) : 0.0;
+        double maxDamageClamp = diffSec != null ? diffSec.getDouble("max-multiplier-damage", 0.0) : 0.0;
+
+        // iterate worlds/entities and apply category-aware multipliers
+        for (World w : Bukkit.getWorlds()) {
+            if (w == null) continue;
+            for (LivingEntity ent : w.getLivingEntities()) {
+                if (ent == null || ent instanceof Player) continue;
+
+                String typeKey = ent.getType().name();
+
+                // BASE multipliers from config: (override -> default -> fallback 1.0)
+                double baseHealthMult = 1.0;
+                double baseDamageMult = 1.0;
+
+                // Bosses: check bosses.<TYPE> (your config uses per-boss entries)
+                ConfigurationSection bossSec = config.getConfigurationSection("bosses." + typeKey);
+                if (bossSec != null) {
+                    baseHealthMult = bossSec.getDouble("health-multiplier", baseHealthMult);
+                    baseDamageMult = bossSec.getDouble("damage-multiplier", baseDamageMult);
+                }
+                // Hostile mobs -> mobs.overrides.<TYPE> else mobs.default
+                else if (isHostile(typeKey)) {
+                    ConfigurationSection override = config.getConfigurationSection("mobs.overrides." + typeKey);
+                    if (override != null) {
+                        baseHealthMult = override.getDouble("health-multiplier", baseHealthMult);
+                        baseDamageMult = override.getDouble("damage-multiplier", baseDamageMult);
+                    } else {
+                        ConfigurationSection hostDefaults = config.getConfigurationSection("mobs.default");
+                        if (hostDefaults != null) {
+                            baseHealthMult = hostDefaults.getDouble("health-multiplier", baseHealthMult);
+                            baseDamageMult = hostDefaults.getDouble("damage-multiplier", baseDamageMult);
                         }
                     }
                 }
+                // Passive mobs -> passive-mobs.overrides.<TYPE> else passive-mobs.default
+                else if (isPassive(typeKey)) {
+                    ConfigurationSection override = config.getConfigurationSection("passive-mobs.overrides." + typeKey);
+                    if (override != null) {
+                        baseHealthMult = override.getDouble("health-multiplier", baseHealthMult);
+                        baseDamageMult = override.getDouble("damage-multiplier", baseDamageMult);
+                    } else {
+                        ConfigurationSection passiveDefaults = config.getConfigurationSection("passive-mobs.default");
+                        if (passiveDefaults != null) {
+                            baseHealthMult = passiveDefaults.getDouble("health-multiplier", baseHealthMult);
+                            baseDamageMult = passiveDefaults.getDouble("damage-multiplier", baseDamageMult);
+                        }
+                    }
+                } else {
+                    // Fallback: use difficulty.defaults if present
+                    ConfigurationSection diffDefaults = diffSec != null ? diffSec.getConfigurationSection("defaults") : null;
+                    if (diffDefaults != null) {
+                        baseHealthMult = diffDefaults.getDouble("health-multiplier", baseHealthMult);
+                        baseDamageMult = diffDefaults.getDouble("damage-multiplier", baseDamageMult);
+                    }
+                }
+
+                // final multipliers = base + global extras (keeps additive behavior from original)
+                double finalHealthMult = baseHealthMult + extraHealth;
+                double finalDamageMult = baseDamageMult + extraDamage;
+
+                // apply safety clamps if configured (> 0 means clamp)
+                if (maxHealthClamp > 0.0) finalHealthMult = Math.min(finalHealthMult, maxHealthClamp);
+                if (maxDamageClamp > 0.0) finalDamageMult = Math.min(finalDamageMult, maxDamageClamp);
+
+                // APPLY: MAX_HEALTH
+                AttributeInstance healthAttr = ent.getAttribute(Attribute.MAX_HEALTH);
+                if (healthAttr != null) {
+                    double base = healthAttr.getBaseValue();
+                    double newMaxHealth = base * finalHealthMult;
+                    try {
+                        healthAttr.setBaseValue(newMaxHealth);
+                        ent.setHealth(healthAttr.getValue());
+                    } catch (Exception ex) {
+                        getLogger().log(Level.FINER, "Failed to set health for {0} ({1}): {2}", new Object[]{ent.getType(), ent.getUniqueId(), ex.getMessage()});
+                    }
+                }
+
+                // APPLY: ATTACK_DAMAGE (if present)
+                AttributeInstance dmgAttr = ent.getAttribute(Attribute.ATTACK_DAMAGE);
+                if (dmgAttr != null) {
+                    double base = dmgAttr.getBaseValue();
+                    double newDamage = base * finalDamageMult;
+                    try {
+                        dmgAttr.setBaseValue(newDamage);
+                    } catch (Exception ex) {
+                        getLogger().log(Level.FINER, "Failed to set damage for {0} ({1}): {2}", new Object[]{ent.getType(), ent.getUniqueId(), ex.getMessage()});
+                    }
+                }
             }
         }
 
-        // Apply global potion effects to living non-player entities
-        List<String> effects = diffSec.getStringList("global-effects");
+        // --- Apply global potion effects (with normalization) ---
+        List<String> effects = diffSec != null ? diffSec.getStringList("global-effects") : Collections.emptyList();
         if (!effects.isEmpty()) {
-            for (World w : worlds) {
+            for (World w : Bukkit.getWorlds()) {
                 if (w == null) continue;
                 for (LivingEntity ent : w.getLivingEntities()) {
-                    if (ent == null) continue;
-                    if (ent instanceof Player) continue;
+                    if (ent == null || ent instanceof Player) continue;
 
                     for (String eff : effects) {
                         if (eff == null || eff.isBlank()) continue;
                         try {
                             String[] parts = eff.split(":");
-                            String type = parts[0].trim();
+                            String rawType = parts[0].trim();
                             int amp = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
                             int dur = parts.length > 2 ? Integer.parseInt(parts[2]) : 999999;
 
-                            PotionEffectType pet = Registry.EFFECT.get(NamespacedKey.minecraft(type.toLowerCase(Locale.ROOT)));
+                            PotionEffectType pet = getPotionEffectTypeFromString(rawType);
                             if (pet != null) {
                                 try {
                                     ent.addPotionEffect(new PotionEffect(pet, dur, amp, true, false, true));
                                 } catch (Exception ex) {
-                                    // Add effect can fail for some entities — log at debug level
-                                    getLogger().log(Level.FINER, "Failed to add potion effect {0} to {1}: {2}", new Object[]{type, ent.getType(), ex.getMessage()});
+                                    getLogger().log(Level.FINER, "Failed to add potion effect {0} to {1}: {2}", new Object[]{rawType, ent.getType(), ex.getMessage()});
                                 }
                             } else {
-                                getLogger().log(Level.FINER, "Unknown potion effect in config: {0}", type);
+                                getLogger().log(Level.FINER, "Unknown potion effect in config: {0}", rawType);
                             }
                         } catch (NumberFormatException nfe) {
                             getLogger().log(Level.FINER, "Invalid effect numbers in config entry: {0}", eff);
@@ -421,14 +454,111 @@ public final class DeathWish extends JavaPlugin implements Listener, TabComplete
             }
         }
 
-        getLogger().log(Level.INFO, "{0}{1}", new Object[]{breakdown.toString(), String.format(" → final health x%.2f, damage x%.2f", healthMult, damageMult)});
+        getLogger().info(String.format("Difficulty applied (global add h=%.2f d=%.2f)", extraHealth, extraDamage));
     }
 
-    @EventHandler
-    public void onWorldInit(WorldInitEvent e) { e.getWorld().setDifficulty(Difficulty.HARD); }
+    // ---------------- config-driven helpers ----------------
+    private boolean isPassive(String type) {
+        ConfigurationSection sec = getConfig().getConfigurationSection("passive-mobs.overrides");
+        return sec != null && sec.isConfigurationSection(type);
+    }
 
-    @EventHandler
-    public void onWorldLoad(WorldLoadEvent e) { e.getWorld().setDifficulty(Difficulty.HARD); }
+    private boolean isHostile(String type) {
+        ConfigurationSection sec = getConfig().getConfigurationSection("mobs.overrides");
+        return sec != null && sec.isConfigurationSection(type);
+    }
+
+    private boolean isBoss(String type) {
+        ConfigurationSection sec = getConfig().getConfigurationSection("bosses");
+        return sec != null && sec.isConfigurationSection(type);
+    }
+
+    // ---------------- effect & material normalization helpers ----------------
+    @SuppressWarnings("deprecation")
+    private PotionEffectType getPotionEffectTypeFromString(String raw) {
+        if (raw == null) return null;
+        String key = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+
+        // common aliases
+        Map<String, String> alias = Map.ofEntries(
+            Map.entry("JUMP", "JUMP_BOOST"),
+            Map.entry("SLOW", "SLOWNESS"),
+            Map.entry("FAST_DIGGING", "FAST_DIGGING"), // keep as-is
+            Map.entry("DAMAGE_RESISTANCE", "DAMAGE_RESISTANCE"),
+            Map.entry("FAST_HASTING", "FAST_DIGGING") // example (not used)
+        );
+        if (alias.containsKey(key)) key = alias.get(key);
+
+        // try direct enum name
+        PotionEffectType pet = PotionEffectType.getByName(key);
+        if (pet != null) return pet;
+
+        // fallback to registry namespaced key (lowercase)
+        try {
+            NamespacedKey nk = NamespacedKey.minecraft(key.toLowerCase(Locale.ROOT));
+            pet = Registry.EFFECT.get(nk);
+            return pet;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private Material getMaterialFromString(String raw) {
+        if (raw == null) return null;
+        String key = raw.trim().toUpperCase(Locale.ROOT).replace(' ', '_');
+
+        // synonyms
+        Map<String, String> alias = Map.ofEntries(
+            Map.entry("SULPHUR", "GUNPOWDER"),
+            Map.entry("GOLD_INGOT", "GOLD_INGOT"), // placeholder
+            Map.entry("IRON_INGOT", "IRON_INGOT")
+        );
+        if (alias.containsKey(key)) key = alias.get(key);
+
+        Material m = Material.matchMaterial(key);
+        if (m != null) return m;
+
+        // try legacy-ish checks
+        try {
+            return Material.matchMaterial(key.toLowerCase(Locale.ROOT));
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    // ---------------- loot parser (normalized) ----------------
+    private ItemStack parseLootString(String s) {
+        try {
+            if (s == null || s.isEmpty()) return null;
+            String[] parts = s.split(":");
+            String matRaw = parts[0].trim();
+            int amount = 1;
+            if (parts.length > 1) {
+                String amtRaw = parts[1].trim();
+                if (amtRaw.contains("-")) {
+                    String[] r = amtRaw.split("-");
+                    int min = Integer.parseInt(r[0].trim());
+                    int max = Integer.parseInt(r[1].trim());
+                    amount = ThreadLocalRandom.current().nextInt(min, max + 1);
+                } else {
+                    amount = Integer.parseInt(amtRaw);
+                }
+            }
+
+            Material mat = getMaterialFromString(matRaw);
+            if (mat == null) {
+                getLogger().log(Level.FINER, "Unknown material in loot config: {0}", matRaw);
+                return null;
+            }
+            return new ItemStack(mat, Math.max(1, amount));
+        } catch (NumberFormatException ex) {
+            getLogger().log(Level.FINER, "Invalid loot amount string: {0}", s);
+            return null;
+        } catch (Exception ex) {
+            getLogger().log(Level.FINER, "Unexpected error parsing loot string {0}: {1}", new Object[]{s, ex.getMessage()});
+            return null;
+        }
+    }
 
     // ---------------- death & head ----------------
 
@@ -1036,7 +1166,13 @@ public final class DeathWish extends JavaPlugin implements Listener, TabComplete
                 if (healthAttr != null) {
                     double base = healthAttr.getBaseValue();
                     healthAttr.setBaseValue(base * hm);
-                    ent.setHealth(Math.min(ent.getHealth(), healthAttr.getValue()));
+
+                    // Delay setting health until next tick so attributes are fully applied
+                    Bukkit.getScheduler().runTaskLater(this, () -> {
+                        if (!ent.isDead() && ent.isValid()) {
+                            ent.setHealth(healthAttr.getValue());
+                        }
+                    }, 1L);
                 }
 
                 AttributeInstance dmgAttr = ent.getAttribute(Attribute.ATTACK_DAMAGE);
@@ -1084,6 +1220,16 @@ public final class DeathWish extends JavaPlugin implements Listener, TabComplete
                 double hm = bconf.getDouble("health-multiplier", 1.0);
                 AttributeInstance hAttr = ent.getAttribute(Attribute.MAX_HEALTH);
                 if (hAttr != null) hAttr.setBaseValue(hAttr.getBaseValue() * hm);
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            if (!ent.isDead() && ent.isValid()) {
+                try {
+                    AttributeInstance a = ent.getAttribute(Attribute.MAX_HEALTH);
+                    if (a != null) {
+                        ent.setHealth(a.getValue());
+                    }
+                } catch (Exception ignored) {}
+            }
+        }, 1L);
 
                 // schedule abilities (existing code uses TimedAbility; adapt as needed)
                 List<String> abilityStrings = bconf.getStringList("abilities");
@@ -1134,8 +1280,18 @@ public final class DeathWish extends JavaPlugin implements Listener, TabComplete
                     double base = healthAttr.getBaseValue();
                     double newMax = base * mr.healthMult;
                     healthAttr.setBaseValue(newMax);
-                    ent.setHealth(Math.min(ent.getHealth(), newMax));
-                } catch (Exception ex) {
+                    Bukkit.getScheduler().runTaskLater(this, () -> {
+                        if (!ent.isDead() && ent.isValid()) {
+                            try {
+                                AttributeInstance a = ent.getAttribute(Attribute.MAX_HEALTH);
+                                // If Bukkit returns null, just leave health as-is to avoid NPE
+                                if (a != null) {
+                                    ent.setHealth(a.getValue());
+                                }
+                            } catch (Exception ignored) {}
+                                }
+                            }, 1L);
+                } catch (IllegalArgumentException ex) {
                     getLogger().log(Level.FINER, "Failed to set spawned entity health: {0}", ex.getMessage());
                 }
             }
@@ -1169,7 +1325,25 @@ public final class DeathWish extends JavaPlugin implements Listener, TabComplete
 
                 double hm = bconf.getDouble("health-multiplier", 1.0);
                 AttributeInstance hAttr = ent.getAttribute(Attribute.MAX_HEALTH);
-                if (hAttr != null) hAttr.setBaseValue(hAttr.getBaseValue() * hm);
+                if (hAttr != null) {
+                    hAttr.setBaseValue(hAttr.getBaseValue() * hm);
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            if (!ent.isDead() && ent.isValid()) {
+                try {
+                    AttributeInstance a = ent.getAttribute(Attribute.MAX_HEALTH);
+                    double max = a != null ? a.getValue() : hAttr.getBaseValue();
+                    ent.setHealth(max);
+                } catch (Exception ignored) {}
+            }
+        }, 1L);
+
+                    // Ensure boss spawns at full health (wait one tick for attributes to apply)
+                    Bukkit.getScheduler().runTaskLater(this, () -> {
+                        if (!ent.isDead() && ent.isValid()) {
+                            ent.setHealth(hAttr.getValue());
+                        }
+                    }, 1L);
+                }
 
                 List<String> abilityStrings = bconf.getStringList("abilities");
                 if (!abilityStrings.isEmpty()) {
@@ -1288,82 +1462,59 @@ public final class DeathWish extends JavaPlugin implements Listener, TabComplete
 
     @EventHandler
     public void onEntityDeath(EntityDeathEvent e) {
-        Entity ent = e.getEntity();
-        if (!isWorldEnabled(ent.getWorld().getName())) return;
-
+        LivingEntity ent = e.getEntity();
+        FileConfiguration config = getConfig();
         String typeKey = ent.getType().name();
 
-        FileConfiguration config = getConfig();
         ConfigurationSection mobsSec = config.getConfigurationSection("mobs.overrides");
         ConfigurationSection bossesSec = config.getConfigurationSection("bosses");
 
-        // Handle mob overrides
+        List<String> lootConfig = null;
+
         if (mobsSec != null && mobsSec.isConfigurationSection(typeKey)) {
-            List<String> loot = mobsSec.getStringList(typeKey + ".custom-loot");
-            if (!loot.isEmpty()) {
-                for (String l : loot) {
-                    ItemStack item = parseLootString(l);
-                    if (item != null) e.getDrops().add(item);
-                }
-                getLogger().log(Level.INFO, "Applied custom loot for {0} on death ({1})",
-                        new Object[]{typeKey, e.getEntity().getUniqueId()});
+            ConfigurationSection conf = mobsSec.getConfigurationSection(typeKey);
+            if (conf != null && conf.isList("loot")) {
+                lootConfig = conf.getStringList("loot");
             }
         }
 
-        // Handle bosses
         if (bossesSec != null && bossesSec.isConfigurationSection(typeKey)) {
-            List<String> bossLoot = bossesSec.getStringList(typeKey + ".loot");
-            if (!bossLoot.isEmpty()) {
-                for (String l : bossLoot) {
-                    ItemStack it = parseLootString(l);
-                    if (it != null) e.getDrops().add(it);
-                }
-                getLogger().log(Level.INFO, "Applied boss loot for {0} on death ({1})",
-                        new Object[]{typeKey, e.getEntity().getUniqueId()});
-            }
-
-            // increment scaling counter
-            totalBossKills++;
-            getLogger().log(Level.INFO, "Total boss kills: {0}", totalBossKills);
-        }
-
-        // --- Custom Loot Handling ---
-        ConfigurationSection mobSec = config.getConfigurationSection("mobs.overrides." + ent.getType().name());
-        if (mobSec != null) {
-            List<String> loot = mobSec.getStringList("custom-loot");
-            for (String s : loot) {
-                ItemStack drop = parseLootString(s);
-                if (drop != null) {
-                    // Add alongside vanilla drops
-                    e.getDrops().add(drop);
-                }
+            ConfigurationSection bconf = bossesSec.getConfigurationSection(typeKey);
+            if (bconf != null && bconf.isList("loot")) {
+                lootConfig = bconf.getStringList("loot");
             }
         }
-    
+
+        if (lootConfig != null) {
+            e.getDrops().clear();
+            List<ItemStack> customLoot = parseLoot(lootConfig, ent.getType().name());
+            e.getDrops().addAll(customLoot);
+        }
     }
 
-    private ItemStack parseLootString(String s) {
-        try {
-            if (s == null || s.isEmpty()) return null;
-            String[] parts = s.split(":");
-            String mat = parts[0].trim();
-            int amount = 1;
-            if (parts.length > 1) {
-                if (parts[1].contains("-")) {
-                    String[] r = parts[1].split("-");
-                    int min = Integer.parseInt(r[0]);
-                    int max = Integer.parseInt(r[1]);
-                    amount = ThreadLocalRandom.current().nextInt(min, max + 1);
+    private List<ItemStack> parseLoot(List<String> lootStrings, String entityName) {
+        List<ItemStack> drops = new ArrayList<>();
+        Random rand = new Random();
+
+        for (String entry : lootStrings) {
+            try {
+                String[] parts = entry.split(":");
+                String matName = parts[0].toUpperCase(Locale.ROOT);
+                int amount = parts.length > 1 ? Integer.parseInt(parts[1]) : 1;
+                double chance = parts.length > 2 ? Double.parseDouble(parts[2]) : 1.0;
+
+                if (rand.nextDouble() <= chance) {
+                    ItemStack stack = new ItemStack(Material.valueOf(matName), amount);
+                    drops.add(stack);
+                    getLogger().log(Level.INFO, "{0} dropped {1}x {2} (chance {3} hit)", new Object[]{entityName, amount, matName, chance});
                 } else {
-                    amount = Integer.parseInt(parts[1]);
+                    getLogger().log(Level.INFO, "{0} did not drop {1}x {2} (chance {3} missed)", new Object[]{entityName, amount, matName, chance});
                 }
+            } catch (NumberFormatException ex) {
+                getLogger().log(Level.WARNING, "Invalid loot entry: " + entry, ex);
             }
-            Material m = Material.matchMaterial(mat);
-            if (m == null) return null;
-            return new ItemStack(m, Math.max(1, amount));
-        } catch (NumberFormatException ex) {
-            return null;
         }
+        return drops;
     }
 
     // ---------------- join ----------------
@@ -1540,6 +1691,6 @@ public final class DeathWish extends JavaPlugin implements Listener, TabComplete
         getLogger().info("ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ██████╔╝███████╗██║  ██║   ██║   ██║  ██║    ╚███╔███╔╝██║███████║██║  ██║");
         getLogger().info("ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ╚═════╝ ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝     ╚══╝╚══╝ ╚═╝╚══════╝╚═╝  ╚═╝");
         getLogger().info(" ");
-        getLogger().log(Level.INFO, "DeathWish version{0} by astroolean", getPluginMeta().getVersion());
+        getLogger().log(Level.INFO, "DeathWish version {0} by astroolean", getPluginMeta().getVersion());
     }
 }
